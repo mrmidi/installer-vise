@@ -31,7 +31,7 @@ def test_extract_success(archive_file, tmp_path, capsys):
     rc = main(["extract", str(archive_file), "-o", str(out_dir)])
     assert rc == EXIT_OK
     assert (out_dir / "files" / "good.txt").read_bytes() == b"payload"
-    assert "CRC-verified" in capsys.readouterr().out
+    assert "verified" in capsys.readouterr().out
 
 
 def test_extract_partial_reports_exit_code(tmp_path):

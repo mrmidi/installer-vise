@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from . import __version__
@@ -60,18 +61,43 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _dir_size(path: Path) -> int:
+    total = 0
+    for f in path.rglob("*"):
+        if f.is_file():
+            total += f.stat().st_size
+    return total
+
+
+def _human_size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}" if unit != "B" else f"{n} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
+
+
 def _cmd_extract(args: argparse.Namespace) -> int:
     arc = Archive.open(args.archive)
+    t0 = time.monotonic()
     summary = extract_archive(arc, args.out,
                               write_manifest=not args.no_manifest,
                               progress=not args.quiet,
                               max_workers=args.jobs)
+    elapsed = time.monotonic() - t0
+
+    files_dir = Path(args.out) / "files"
+    size = _dir_size(files_dir) if files_dir.is_dir() else 0
+    rate = size / elapsed if elapsed > 0 else 0
+
     ok = summary.crc_ok
-    print(f"extracted {summary.written} files to {args.out}/files "
-          f"({ok}/{summary.written} CRC-verified, "
-          f"{summary.crc_bad} crc-mismatch, "
+    print(f"\n  {summary.written} files extracted to {args.out}/files")
+    print(f"  CRC: {ok}/{summary.written} verified, "
+          f"{summary.crc_bad} mismatch, "
           f"{summary.other_source} other-source, "
-          f"{summary.failed} failed)")
+          f"{summary.failed} failed")
+    print(f"  size: {_human_size(size)}  time: {elapsed:.1f}s  "
+          f"rate: {_human_size(rate)}/s" if rate else f"  size: {_human_size(size)}  time: {elapsed:.1f}s")
     if summary.failed or summary.crc_bad:
         return EXIT_PARTIAL
     return EXIT_OK
