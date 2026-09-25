@@ -1,13 +1,13 @@
 # Installer VISE 3.x — Format Documentation
 
 Reverse-engineered documentation of the **Installer VISE 3.x** archive format
-(MindVision Installer VISE, classic Mac OS), reconstructed end-to-end from a
-real archive (~12 MB, ~2004 era).
+(MindVision Installer VISE, classic Mac OS), reconstructed end-to-end from
+multiple real archives spanning 1999–2006.
 
 Everything here was derived by static analysis of the installer PEF (IDA),
 the embedded decompressor resources (`'Dcmp'` #1004 68K / #1005 PPC), and
-validated exhaustively against the archive itself — final result
-**1288/1288 file records CRC-verified, 0 failures**.
+validated exhaustively across six independent reference archives — final
+result **3260/3260 file records CRC32-verified, 0 failures**.
 
 ## Document map
 
@@ -28,12 +28,12 @@ validated exhaustively against the archive itself — final result
 | Shared blocks | 62, exact-tiling verified |
 | Directories (DVCT) | 83 |
 | Condition/action records | 17 (skipped by extractors) |
-| Extracted | 1288 files CRC32-verified, 98 real resource forks, 40 MB |
+| Extracted | 3260 files CRC32-verified across 6 archives |
 | Not in this archive | 5 records (`inArchive = 0`): belong to a second distribution disk |
 
 ## Implementations
 
-- `installer_vise/` (this package) — clean, typed, stdlib-only extractor.
+- `installer_vise/` (this package) — clean, typed extractor with native zlib fast path.
 - Historical/research code: `../vise-tool/` (probe scripts, not for sharing).
 
 ## Licensing note

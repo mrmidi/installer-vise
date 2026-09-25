@@ -1,8 +1,20 @@
 # Validation Log
 
 Every structural claim in these documents, with the experiment that
-established it against the reference archive. "Catalog" = the decoded
-CVCT body (298,519 bytes); "payload" = the archive's file-payload region.
+established it. Where a claim was validated against a specific archive, that
+archive is named. Claims validated across all six reference archives are
+noted as such.
+
+## Reference Archives
+
+| Archive | Era | Catalog | Records | Notes |
+|---|---|---|---|---|
+| Konolta DiMAGE Scan | 2004 | DEFLATE | 1288 | First reverse-engineered sample; large, PEF-embedded |
+| Roxio Toast 5.0.1 | ~2002 | DEFLATE | 13 | Mid-era installer |
+| Crescendo Enc Ins 2.3.1 | 2005 | DEFLATE | 9 | 3 other-source records (multi-volume) |
+| Installer VISE 6.0.1 | ~2006 | DEFLATE | 252 | Late-era compiler |
+| Apple Driver Installer | ~2001 | DEFLATE | 1665 | Stress test: 273 shared blocks, 83 MB |
+| Cythera 1.0.4 | 1999 | RAW | 33 | Oldest sample; raw (uncompressed) catalog |
 
 ## Engine correctness
 
@@ -26,7 +38,7 @@ CVCT body (298,519 bytes); "payload" = the archive's file-payload region.
 | claim | evidence |
 |---|---|
 | record count 1393 (1310 FVCT + 83 DVCT), 17 condition/action records | sequential signature parse of the catalog body |
-| record stride / name offset (+0xC6, NUL-terminated MacRoman) | names match visible file inventory |
+| record stride / name offset varies (+0xBA / +0xBE / +0xC6) | detected automatically via filename-length byte at +0x7A; three distinct offsets observed across six archives |
 | +12 bit31 = condition/action | count matches the installer's script-gated records; skipping them yields exactly the installable set |
 
 ## Shared-block architecture
@@ -64,6 +76,14 @@ CVCT body (298,519 bytes); "payload" = the archive's file-payload region.
 | DES never applied | `BitTst(record+208, 6)` false for 1310/1310 FVCT bodies (byte @+71 values: 0x08 ×1278, 0x88, 0x48, 0x09 …) |
 | ZipCrypto never applied | gate requires `'PsWd'` #500; resource fork inventory (318,835-byte fork, 28 types) contains no such type |
 | substitution is not crypto-adjacent | it is a plain permutation on payload bytes, bypassed for the catalog |
+
+## Performance Validation
+
+| claim | evidence |
+|---|---|
+| Native zlib fast path is correct | All 6 archives extract 3260/3260 CRC-verified through both native and fallback paths |
+| Pair-swap transformation is correct | SUBST → byte-pair swap → raw DEFLATE produces correct output for dynamic-Huffman streams |
+| Fallback is correct | Stored blocks and mixed streams fall back to exact Python decoder; CRCs match |
 
 ## Negative results worth keeping
 

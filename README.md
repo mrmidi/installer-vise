@@ -1,19 +1,22 @@
 # installer-vise
 
-Experimental, dependency-free Python extractor for **Installer VISE 3.x**
-archives (MindVision, classic Mac OS) — reverse-engineered end-to-end and
-validated against six unrelated reference archives spanning 1999–2006:
+Experimental Python extractor for **Installer VISE 3.x** archives
+(MindVision, classic Mac OS) — reverse-engineered end-to-end and
+validated against six independent reference archives spanning 1999–2006:
 
 ```text
 Compressed catalog + PEF     (2004)   1288/1288 records, CRC32-verified
-Compressed catalog, no PEF   (2005)       9/9 records, CRC32-verified
 Compressed catalog, no PEF   (~2002)     13/13 records, CRC32-verified
+Compressed catalog, no PEF   (2005)       9/9 records, CRC32-verified
 Compressed catalog, no PEF   (~2006)    252/252 records, CRC32-verified
 Compressed catalog, no PEF   (~2001)   1665/1665 records, CRC32-verified
 Raw catalog, no PEF          (1999)     33/33 records, CRC32-verified
 ```
 
-Status: **alpha** — six independent archives validated (3260/3260 CRC-verified); a multi-volume archive would raise confidence further. See [Scope notes](#scope-notes) and `docs/validation.md` for what is and isn't proven.
+Status: **alpha** — six archives validated (3260/3260 CRC-verified). Extracts
+an 83 MB / 1665-file installer in ~2 seconds using native zlib. See
+[Scope notes](#scope-notes) and `docs/validation.md` for proven and unproven
+claims.
 
 ## Why this exists
 
@@ -35,13 +38,14 @@ log.
 pip install .            # or: uv pip install .
 ```
 
-Python 3.10+, standard library only.
+Python 3.10+, requires `rich`.
 
 ## CLI
 
 ```bash
 installer-vise inspect "SomeInstaller"
 installer-vise extract  "SomeInstaller" -o extracted/
+installer-vise extract  "SomeInstaller" -o extracted/ -j 8  # 8 worker threads
 ```
 
 Exit codes: `0` success · `1` input or format error (missing file, not a VISE
@@ -101,10 +105,14 @@ tests/            pytest suite (synthetic archives + real-file regression)
   one raw-catalog archive (~1999). All share the same SVCT/CVCT/PACK
   chain, SUBST table, DEFLATE codec, and CRC model.
 * **Version-dependent behavior detected.** Catalog encoding (raw vs
-  DEFLATE), embedded PEF presence, FVCT body layout (name at +0xC6 vs
-  +0xBA), and post-catalog data placement all vary between generations.
-  The correct layout is detected from structural evidence (catalog
-  encoding), not guessed from PEF presence.
+  DEFLATE), embedded PEF presence, FVCT body layout (name at +0xBA,
+  +0xBE, or +0xC6), and post-catalog data placement all vary between
+  generations. The correct layout is detected automatically from the
+  filename-length byte at FVCT+0x7A, without archive profiling.
+* **Performance.** A native zlib fast path handles most DEFLATE streams
+  (SUBST → byte-pair swap → raw zlib); the exact Python decoder handles
+  corner cases (stored blocks, mixed streams). Multi-threaded extraction
+  with progress display via `rich`.
 * DES/eSellerate and ZipCrypto gates exist in the VISE runtime but are
   unused in ordinary archives; they are documented but not implemented.
 * `'PsWd'` password-protected archives are not supported (none was
