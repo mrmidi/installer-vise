@@ -119,18 +119,11 @@ def _crc(data: bytes, rsrc: bytes) -> int:
 def _decode_record(arc: Archive, rec) -> tuple[bytes, bytes] | ViseError:
     """Decode a plain record's data and rsrc forks. Returns (data, rsrc) or an error."""
     try:
-        if rec.stored_d:
-            data, _ = arc.decode_block(rec.block_offset, rec.stored_d,
-                                       expected=rec.size_d,
-                                       strict_consumed=False)
-        else:
-            data = b""
-        if rec.stored_r:
-            rsrc, _ = arc.decode_block(
-                rec.block_offset + rec.stored_d, rec.stored_r,
-                expected=rec.size_r)
-        else:
-            rsrc = b""
+        data = arc.decode_block_data(rec.block_offset, rec.stored_d,
+                                     expected=rec.size_d) if rec.stored_d else b""
+        rsrc = arc.decode_block_data(rec.block_offset + rec.stored_d,
+                                     rec.stored_r,
+                                     expected=rec.size_r) if rec.stored_r else b""
         return (data, rsrc)
     except ViseError as exc:
         return exc
@@ -143,8 +136,7 @@ def _decode_block_members(arc: Archive, blk) -> tuple[bytes, list[tuple], list[t
     members and failed are records with out-of-range slices.
     """
     try:
-        pool, consumed = arc.decode_block(blk.offset, blk.stored,
-                                          expected=blk.expanded)
+        pool = arc.decode_block_data(blk.offset, blk.stored, expected=blk.expanded)
     except ViseError as exc:
         return exc
     slices = []
@@ -186,7 +178,6 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
     used_names_lower: set[str] = set()
 
     total = sum(1 for r in arc.catalog.files if r.in_archive)
-    done = 0
 
     _prog_ctx = Progress(
         SpinnerColumn(),
@@ -201,11 +192,10 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
 
     _task_id = _prog_ctx.add_task("extracting", total=total, name="") if _prog_ctx else None
 
-    def _pb(name: str = ""):
-        nonlocal done
+    def _pb(name: str = "", advance: int = 1):
         if _prog_ctx:
             trunc = (name[:40] + "…") if len(name) > 41 else name
-            _prog_ctx.update(_task_id, advance=1, name=trunc)
+            _prog_ctx.update(_task_id, advance=advance, name=trunc)
 
     def finish(rec, data: bytes, rsrc: bytes, status: RecordStatus,
                detail: str = "", wrote: bool = False) -> None:
@@ -250,6 +240,7 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
             for rec in blk.members:
                 finish(rec, b"", b"", RecordStatus.FAILED,
                        f"block {blk.offset:#x}: {result}")
+            _pb(blk.members[0].name if blk.members else "", len(blk.members))
             continue
         pool, slices, failed = result
         summary.blocks += 1
@@ -257,8 +248,8 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
             emit(rec, data, rsrc)
         for rec, detail in failed:
             finish(rec, b"", b"", RecordStatus.FAILED, detail)
-        done += len(slices) + len(failed)
-        _pb(blk.members[0].name if blk.members else "")
+        _pb(blk.members[0].name if blk.members else "",
+            len(slices) + len(failed))
 
     # ---- plain records: two independent streams ---------------------------
     plain_recs = [rec for rec in arc.catalog.files
@@ -275,7 +266,6 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
             else:
                 data, rsrc = result
                 emit(rec, data, rsrc)
-            done += 1
             _pb(rec.name)
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -289,7 +279,6 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
                 else:
                     data, rsrc = result
                     emit(rec, data, rsrc)
-                done += 1
                 _pb(rec.name)
 
     # Handle other-source records (not stored in this archive)

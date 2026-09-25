@@ -261,42 +261,20 @@ def _inflate_engine(reader: _BitReader, out: bytearray, limit: int) -> int:
             return reader.pos
 
 
-def _is_stored_block(buf: bytes) -> bool:
-    """Check if a pair-swapped VISE stream starts with a stored block.
-
-    Stored blocks (BTYPE=00) have a different format in VISE vs RFC 1951
-    (big-endian LEN/NLEN, pair-swapped payload), so they are not compatible
-    with raw zlib.
-    """
-    if not buf:
-        return False
-    # First byte after pair-swap: bits are [BFINAL, BTYPE0, BTYPE1, ...]
-    # BTYPE == 00 means stored block.
-    btype = (buf[0] >> 1) & 0x03
-    return btype == 0
-
-
-def _zlib_fast_path(data: bytes, offset: int, expected: int | None,
-                     subst_table: bytes | None = None) -> tuple[bytes, int] | None:
-    """Try native zlib decompression on a VISE stream.
+def _inflate_native(data: bytes, expected: int | None = None) -> bytes | None:
+    """Fast native zlib path for extraction.
 
     VISE stores data as big-endian 16-bit words with LSB-first bit order.
     Pair-swapping converts this to standard RFC 1951 byte order.  Returns
-    ``(output, consumed)`` on success, or ``None`` if the stream is not
-    compatible with raw DEFLATE (caller should fall back to the exact
-    Python decoder).
+    decoded bytes on success, or None if the stream is not compatible with
+    raw DEFLATE (caller should fall back to inflate_span).
     """
-    chunk = data[offset:]
-    if len(chunk) < 4:
+    if len(data) < 4:
         return None
 
-    # Pair-swap to convert VISE word order to DEFLATE byte order.
-    buf = bytearray(chunk)
-    buf[0::2], buf[1::2] = buf[1::2], buf[0::2]
-
-    # Stored blocks have VISE-specific format; fall back to Python decoder.
-    if _is_stored_block(buf):
-        return None
+    buf = bytearray(data)
+    n = len(buf) & ~1
+    buf[0:n:2], buf[1:n:2] = buf[1:n:2], buf[0:n:2]
 
     try:
         d = zlib.decompressobj(-15)
@@ -311,25 +289,18 @@ def _zlib_fast_path(data: bytes, offset: int, expected: int | None,
     if expected is not None and len(out) != expected:
         return None
 
-    consumed = len(chunk) - len(d.unused_data)
-    return out, offset + consumed
+    return out
 
 
 def inflate_span(data: bytes, offset: int = 0,
-                 max_out: int | None = None,
-                 expected: int | None = None) -> tuple[bytes, int]:
+                 max_out: int | None = None) -> tuple[bytes, int]:
     """Decode one VISE DEFLATE stream starting at byte ``offset``.
 
     ``offset`` must be even (word-aligned).  Returns ``(output, consumed)``
     where ``consumed`` is the even byte offset just past the final block
-    (after the word-boundary flush).
+    (after the word-boundary flush).  Exact reference implementation —
+    handles every VISE block variant.
     """
-    # NOTE: zlib fast path disabled — stored blocks and mixed streams need
-    # more analysis. The Python decoder is correct if slow.
-    # fast = _zlib_fast_path(data, offset, expected)
-    # if fast is not None:
-    #     return fast
-
     reader = _BitReader(data, offset)
     out = bytearray()
     limit = max_out if max_out is not None else 1 << 62

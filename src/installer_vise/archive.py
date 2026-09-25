@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .catalog import Catalog, parse_catalog
-from .deflate import inflate_span
+from .deflate import _inflate_native, inflate_span
 from .errors import ViseFormatError
 from .subst import subst
 
@@ -129,7 +129,11 @@ class Archive:
         if is_raw:
             catalog_body = catalog_raw
         else:
-            out, _ = inflate_span(catalog_raw, 0)
+            out, consumed = inflate_span(catalog_raw, 0)
+            if consumed != len(catalog_raw):
+                raise ViseFormatError(
+                    f"catalog DEFLATE: consumed {consumed} of "
+                    f"{len(catalog_raw)} bytes")
             catalog_body = out
 
         # Name offset is detected from the catalog data itself (via the
@@ -170,7 +174,7 @@ class Archive:
         window = self.data[offset:offset + stored]
         if substitute:
             window = subst(window)
-        out, consumed = inflate_span(window, 0, expected=expected)
+        out, consumed = inflate_span(window, 0)
         if strict_consumed and consumed != stored:
             raise ViseFormatError(
                 f"payload: stream consumed {consumed} bytes, expected {stored}")
@@ -178,3 +182,20 @@ class Archive:
             raise ViseFormatError(
                 f"payload: expanded to {len(out)} bytes, expected {expected}")
         return out, consumed
+
+    # ----------------------------------------------------------- fast path --
+
+    def decode_block_data(self, offset: int, stored: int,
+                          expected: int | None = None) -> bytes:
+        """Fast extraction path: try native zlib, fall back to exact decoder.
+
+        Returns decoded bytes.  Raises ``ViseFormatError`` on mismatch.
+        """
+        window = subst(self.data[offset:offset + stored])
+        out = _inflate_native(window, expected)
+        if out is None:
+            out, _ = inflate_span(window, 0)
+            if expected is not None and len(out) != expected:
+                raise ViseFormatError(
+                    f"payload: expanded to {len(out)} bytes, expected {expected}")
+        return out
