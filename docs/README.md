@@ -19,6 +19,7 @@ result **3260/3260 file records CRC32-verified, 0 failures**.
 | [compression.md](compression.md) | The VISE word-aligned DEFLATE variant (complete algorithm spec) + the byte-substitution layer |
 | [runtime-pipeline.md](runtime-pipeline.md) | How the installer runtime extracts files: record→runtime mapping, shared-block cache, crypto gates (DES / ZipCrypto) and why they are unused here |
 | [validation.md](validation.md) | Every claim in these docs and the experiment that proved it |
+| [reverse-engineering.md](reverse-engineering.md) | Narrative: how the format was reverse-engineered end-to-end |
 
 ## Reference archive numbers
 

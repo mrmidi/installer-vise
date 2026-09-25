@@ -29,8 +29,9 @@ Installer VISE archives are *not* StuffIt and not plain DEFLATE:
   expands to a pool of concatenated forks, sliced per record.
 
 The full format is documented in [`docs/`](docs/README.md), including the
-runtime pipeline, catalog record layout, and a claim-by-claim validation
-log.
+runtime pipeline, catalog record layout, a claim-by-claim validation log,
+and a [reverse-engineering narrative](docs/reverse-engineering.md) describing
+how the pieces fit together.
 
 ## Install
 
