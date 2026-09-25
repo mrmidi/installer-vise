@@ -2,18 +2,18 @@
 
 Experimental, dependency-free Python extractor for **Installer VISE 3.x**
 archives (MindVision, classic Mac OS) — reverse-engineered end-to-end and
-validated against three unrelated reference archives spanning 1999–2005:
+validated against six unrelated reference archives spanning 1999–2006:
 
 ```text
-Compressed catalog + PEF     (2004)  1288/1288 records, CRC32-verified
-Compressed catalog, no PEF   (2005)      9/9 records, CRC32-verified
-Raw catalog, no PEF          (1999)    33/33 plain records, CRC32-verified (48 parsed incl. signature-scan artifacts)
+Compressed catalog + PEF     (2004)   1288/1288 records, CRC32-verified
+Compressed catalog, no PEF   (2005)       9/9 records, CRC32-verified
+Compressed catalog, no PEF   (~2002)     13/13 records, CRC32-verified
+Compressed catalog, no PEF   (~2006)    252/252 records, CRC32-verified
+Compressed catalog, no PEF   (~2001)   1665/1665 records, CRC32-verified
+Raw catalog, no PEF          (1999)     33/33 records, CRC32-verified
 ```
 
-Status: **alpha** — three archive families validated; a multi-volume
-archive would raise confidence further. See
-[Scope notes](#scope-notes) and `docs/validation.md` for what is and
-isn't proven.
+Status: **alpha** — six independent archives validated (3260/3260 CRC-verified); a multi-volume archive would raise confidence further. See [Scope notes](#scope-notes) and `docs/validation.md` for what is and isn't proven.
 
 ## Why this exists
 
@@ -96,11 +96,10 @@ tests/            pytest suite (synthetic archives + real-file regression)
 
 ## Scope notes
 
-* **Three archives validated across two catalog formats.** Verified against
-  a compressed-catalog archive with PEF (~2004), a compressed-catalog
-  archive without PEF (~2005), and a raw-catalog archive (~1999). All
-  three share the same SVCT/CVCT/PACK chain, SUBST table, DEFLATE codec,
-  and CRC model.
+* **Six archives validated across two catalog formats.** Verified against
+  five compressed-catalog archives (with and without PEF, ~2001–2006) and
+  one raw-catalog archive (~1999). All share the same SVCT/CVCT/PACK
+  chain, SUBST table, DEFLATE codec, and CRC model.
 * **Version-dependent behavior detected.** Catalog encoding (raw vs
   DEFLATE), embedded PEF presence, FVCT body layout (name at +0xC6 vs
   +0xBA), and post-catalog data placement all vary between generations.
