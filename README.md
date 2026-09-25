@@ -7,7 +7,7 @@ validated against three unrelated reference archives spanning 1999–2005:
 ```text
 Compressed catalog + PEF     (2004)  1288/1288 records, CRC32-verified
 Compressed catalog, no PEF   (2005)      9/9 records, CRC32-verified
-Raw catalog, no PEF          (1999)    33/33 records, CRC32-verified
+Raw catalog, no PEF          (1999)    33/33 plain records, CRC32-verified (48 parsed incl. signature-scan artifacts)
 ```
 
 Status: **alpha** — three archive families validated; a multi-volume

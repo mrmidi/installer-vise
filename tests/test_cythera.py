@@ -1,4 +1,4 @@
-"""Regression tests against the Cythera 1.x reference archive (VISE_EARLY).
+"""Regression tests against the Cythera 1.x reference archive.
 
 These run only when the proprietary ``Cythera Installer`` file is
 present (see ``conftest.py``); otherwise they skip, keeping the suite
@@ -6,7 +6,7 @@ hermetic.
 
 Cythera is an older Installer VISE variant with a raw (uncompressed)
 catalog, no embedded PEF, and FVCT records with the name at offset
-0xBC (vs 0xC6 in later versions).
+0xBA (vs 0xC6 in later versions).
 """
 
 from __future__ import annotations
@@ -17,12 +17,11 @@ import pytest
 
 from installer_vise import Archive, RecordStatus, extract_archive
 
-# Cythera has 33 plain files + 9 shared-block members = 42 real records.
-# Signature scanning also finds ~6 false positives where "FVCT" appears
-# inside a record name (a known TODO). The CRC count below reflects
-# only records that pass CRC32(data||rsrc) verification.
+# Cythera has 33 plain in-archive files + 9 shared-block members.
+# Signature scanning finds ~48 FVCT signatures including false positives
+# where "FVCT" appears inside a record name (known TODO). The 33 below
+# is the count of plain (non-shared) records with in_archive=True.
 EXPECTED_CRC_OK = 33
-EXPECTED_SHARED = 9
 EXPECTED_BLOCKS = 1
 
 

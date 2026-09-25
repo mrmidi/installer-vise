@@ -1,20 +1,25 @@
 """Container parsing: SVCT header, CVCT catalog, PACK.
 
-Supported catalog encodings:
+Catalog encoding is detected from structural evidence:
 
-* **VISE3_LATE** (e.g. Minolta DiMAGE Scan): DEFLATE-compressed catalog,
-  optional embedded PEF at SVCT+0x30, catalog ends at EOF.
-* **VISE_EARLY** (e.g. Cythera 1.x): raw (uncompressed) catalog, no PEF,
-  catalog followed by script/table data.
+* Catalog stream starts with FVCT/DVCT → raw catalog.
+* Otherwise → VISE-DEFLATE-compressed catalog.
 
-The profile is detected from structural evidence, not file metadata:
+Known correlations (observed, not proven format laws):
 
-* PEF at +0x30 → VISE3_LATE; else VISE_EARLY.
-* Catalog stream starts with FVCT/DVCT → raw catalog; else DEFLATE.
+* Raw catalog → FVCT name at record offset 0xBA (currently one sample).
+* DEFLATE catalog → FVCT name at record offset 0xC6 or 0xC2 (currently
+  three samples with two distinct offsets).
 
-Both profiles share the same SVCT → CVCT → PACK chain, the same SUBST
-table, the same VISE word-aligned DEFLATE payload codec, and the same
-CRC32(data || rsrc) per-record verification.
+These characteristics are independent:
+
+* Catalog encoding (raw vs DEFLATE).
+* Embedded PEF presence (yes vs no).
+* FVCT name offset (version/compiler-dependent).
+
+All known samples share the same SVCT → CVCT → PACK chain, the same
+SUBST table, the same VISE word-aligned DEFLATE payload codec, and the
+same CRC32(data || rsrc) per-record verification.
 """
 
 from __future__ import annotations
