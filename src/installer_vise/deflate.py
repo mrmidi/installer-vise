@@ -261,7 +261,7 @@ def _inflate_engine(reader: _BitReader, out: bytearray, limit: int) -> int:
             return reader.pos
 
 
-def _inflate_native(data: bytes, expected: int | None = None) -> bytes | None:
+def inflate_native(data: bytes, expected: int | None = None) -> bytes | None:
     """Fast native zlib path for extraction.
 
     VISE stores data as big-endian 16-bit words with LSB-first bit order.

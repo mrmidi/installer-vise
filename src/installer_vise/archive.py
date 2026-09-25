@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .catalog import Catalog, parse_catalog
-from .deflate import _inflate_native, inflate_span
+from .deflate import inflate_native, inflate_span
 from .errors import ViseFormatError
 from .subst import subst
 
@@ -192,7 +192,7 @@ class Archive:
         Returns decoded bytes.  Raises ``ViseFormatError`` on mismatch.
         """
         window = subst(self.data[offset:offset + stored])
-        out = _inflate_native(window, expected)
+        out = inflate_native(window, expected)
         if out is None:
             out, _ = inflate_span(window, 0)
             if expected is not None and len(out) != expected:
