@@ -30,3 +30,6 @@ htmlcov/
 
 # uv
 uv.lock
+
+# Proprietary reference archives (not for commit)
+tmp/

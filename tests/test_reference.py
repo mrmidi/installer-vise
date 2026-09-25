@@ -30,7 +30,8 @@ def test_info(extracted, reference_archive):
     arc, _, _ = extracted
     assert arc.info.size == reference_archive.stat().st_size
     assert arc.info.has_pef
-    assert arc.info.stream_end == arc.info.size
+    assert arc.info.profile == "vise3_late"
+    assert arc.info.catalog_encoding == "deflate"
 
 
 def test_record_counts(extracted):

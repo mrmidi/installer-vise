@@ -26,6 +26,7 @@ _SVCT_SIZE = 0x2C
 _CVCT_HEADER = 0x14
 _PACK_HEADER = 0x50
 _FVCT_BODY = 194
+_NAME_OFF = 0xC6
 
 
 @dataclass
@@ -112,18 +113,22 @@ def build_archive(records: list[Rec], *, with_pef: bool = True) -> bytes:
     payload_end = off
 
     # catalog body
+    # Layout profile depends on PEF presence: late (Minolta) uses 194-byte
+    # body with name at 0xC6; early (Cythera) uses 184-byte body with name
+    # at 0xBC.
+    use_late = with_pef
     cat = bytearray()
     for s in streams:
         if s.members:
             cursor = 0
             for m in s.members:
-                cat += _fvct_shared(m, s, cursor)
+                cat += _fvct_shared(m, s, cursor, use_late)
                 cursor += len(m.fork.data) + len(m.fork.rsrc)
         else:
-            cat += _fvct_plain(s)
+            cat += _fvct_plain(s, use_late)
     for d in ("Applications", "Documentation"):
-        cat += _dvct(d)
-    cat += _fvct_condition()               # condition record to skip
+        cat += _dvct(d, use_late)
+    cat += _fvct_condition(use_late)       # condition record to skip
 
     # assemble
     catalog_offset = payload_end
@@ -154,61 +159,105 @@ def build_archive(records: list[Rec], *, with_pef: bool = True) -> bytes:
 
 # ---------------------------------------------------------------- records --
 
-def _fvct_shared(rec: Rec, s: _Stream, cursor: int) -> bytes:
-    body = bytearray(_FVCT_BODY)
-    struct.pack_into(">I", body, 12 - 4, 0x10000601)
-    body[44 - 4:48 - 4] = rec.file_type
-    body[48 - 4:52 - 4] = rec.creator
-    struct.pack_into(">I", body, 68 - 4, s.stored)
-    struct.pack_into(">I", body, 72 - 4, len(rec.fork.data))
-    struct.pack_into(">I", body, 76 - 4, s.expanded)
-    struct.pack_into(">I", body, 80 - 4, len(rec.fork.rsrc))
-    struct.pack_into(">I", body, 84 - 4,
-                     rec.crc if rec.crc is not None else _crc(rec.fork.data + rec.fork.rsrc))
-    struct.pack_into(">I", body, 96 - 4, (rec.source << 16) | int(rec.in_archive))
-    struct.pack_into(">I", body, 100 - 4, s.offset)
-    struct.pack_into(">I", body, 104 - 4, cursor)
-    struct.pack_into(">I", body, 108 - 4, cursor + len(rec.fork.data))
-    _put_name(body, rec.name)
-    return b"FVCT" + bytes(body)
+def _fvct_shared(rec: Rec, s: _Stream, cursor: int, late: bool) -> bytes:
+    if late:
+        body = bytearray(_FVCT_BODY)
+        struct.pack_into(">I", body, 8, 0x10000601)
+        body[40:44] = rec.file_type
+        body[44:48] = rec.creator
+        struct.pack_into(">I", body, 64, s.stored)
+        struct.pack_into(">I", body, 68, len(rec.fork.data))
+        struct.pack_into(">I", body, 72, s.expanded)
+        struct.pack_into(">I", body, 76, len(rec.fork.rsrc))
+        struct.pack_into(">I", body, 80,
+                         rec.crc if rec.crc is not None else _crc(rec.fork.data + rec.fork.rsrc))
+        struct.pack_into(">I", body, 92, (rec.source << 16) | int(rec.in_archive))
+        struct.pack_into(">I", body, 96, s.offset)
+        struct.pack_into(">I", body, 100, cursor)
+        struct.pack_into(">I", body, 104, cursor + len(rec.fork.data))
+        rec_bytes = b"FVCT" + bytes(body)
+        rec_bytes += rec.name.encode("mac-roman") + b"\x00"
+        return rec_bytes
+    else:
+        body = bytearray(198)
+        struct.pack_into(">I", body, 8, 0x10000601)
+        body[40:44] = rec.file_type
+        body[44:48] = rec.creator
+        struct.pack_into(">I", body, 64, s.stored)
+        struct.pack_into(">I", body, 68, len(rec.fork.data))
+        struct.pack_into(">I", body, 72, s.expanded)
+        struct.pack_into(">I", body, 76, len(rec.fork.rsrc))
+        struct.pack_into(">I", body, 80,
+                         rec.crc if rec.crc is not None else _crc(rec.fork.data + rec.fork.rsrc))
+        struct.pack_into(">I", body, 92, (rec.source << 16) | int(rec.in_archive))
+        struct.pack_into(">I", body, 96, s.offset)
+        struct.pack_into(">I", body, 100, cursor)
+        struct.pack_into(">I", body, 104, cursor + len(rec.fork.data))
+        body[184:184 + len(rec.name)] = rec.name.encode("mac-roman")
+        return b"FVCT" + bytes(body)
 
 
-def _fvct_plain(s: _Stream) -> bytes:
+def _fvct_plain(s: _Stream, late: bool) -> bytes:
     rec = s.plain
     assert rec is not None
-    body = bytearray(_FVCT_BODY)
-    struct.pack_into(">I", body, 12 - 4, 0x601)
-    body[44 - 4:48 - 4] = rec.file_type
-    body[48 - 4:52 - 4] = rec.creator
-    struct.pack_into(">I", body, 68 - 4, s.stored)                # stored_d
-    struct.pack_into(">I", body, 72 - 4, len(rec.fork.data))      # size_d
-    struct.pack_into(">I", body, 76 - 4, s._stored_r)             # stored_r  (type: ignore[attr-defined])
-    struct.pack_into(">I", body, 80 - 4, len(rec.fork.rsrc))      # size_r
-    struct.pack_into(">I", body, 84 - 4,
-                     rec.crc if rec.crc is not None else _crc(rec.fork.data + rec.fork.rsrc))
-    struct.pack_into(">I", body, 96 - 4, (rec.source << 16) | int(rec.in_archive))
-    struct.pack_into(">I", body, 100 - 4, s.offset)
-    _put_name(body, rec.name)
-    return b"FVCT" + bytes(body)
+    if late:
+        body = bytearray(_FVCT_BODY)
+        struct.pack_into(">I", body, 8, 0x601)
+        body[40:44] = rec.file_type
+        body[44:48] = rec.creator
+        struct.pack_into(">I", body, 64, s.stored)
+        struct.pack_into(">I", body, 68, len(rec.fork.data))
+        struct.pack_into(">I", body, 72, s._stored_r)  # type: ignore[attr-defined]
+        struct.pack_into(">I", body, 76, len(rec.fork.rsrc))
+        struct.pack_into(">I", body, 80,
+                         rec.crc if rec.crc is not None else _crc(rec.fork.data + rec.fork.rsrc))
+        struct.pack_into(">I", body, 92, (rec.source << 16) | int(rec.in_archive))
+        struct.pack_into(">I", body, 96, s.offset)
+        rec_bytes = b"FVCT" + bytes(body)
+        rec_bytes += rec.name.encode("mac-roman") + b"\x00"
+        return rec_bytes
+    else:
+        body = bytearray(198)
+        struct.pack_into(">I", body, 8, 0x601)
+        body[40:44] = rec.file_type
+        body[44:48] = rec.creator
+        struct.pack_into(">I", body, 64, s.stored)
+        struct.pack_into(">I", body, 68, len(rec.fork.data))
+        struct.pack_into(">I", body, 72, s._stored_r)  # type: ignore[attr-defined]
+        struct.pack_into(">I", body, 76, len(rec.fork.rsrc))
+        struct.pack_into(">I", body, 80,
+                         rec.crc if rec.crc is not None else _crc(rec.fork.data + rec.fork.rsrc))
+        struct.pack_into(">I", body, 92, (rec.source << 16) | int(rec.in_archive))
+        struct.pack_into(">I", body, 96, s.offset)
+        body[184:184 + len(rec.name)] = rec.name.encode("mac-roman")
+        return b"FVCT" + bytes(body)
 
 
-def _dvct(name: str) -> bytes:
-    body = bytearray(_FVCT_BODY)
-    _put_name(body, name)
-    return b"DVCT" + bytes(body)
+def _dvct(name: str, late: bool) -> bytes:
+    if late:
+        body = bytearray(_FVCT_BODY)
+        rec_bytes = b"DVCT" + bytes(body)
+        rec_bytes += name.encode("mac-roman") + b"\x00"
+        return rec_bytes
+    else:
+        body = bytearray(198)
+        body[184:184 + len(name)] = name.encode("mac-roman")
+        return b"DVCT" + bytes(body)
 
 
-def _fvct_condition() -> bytes:
+def _fvct_condition(late: bool) -> bytes:
     """A condition/action record: FVCT signature with flag bit31 set."""
-    body = bytearray(_FVCT_BODY)
-    struct.pack_into(">I", body, 12 - 4, 0x08000601)
-    _put_name(body, "if.version < 8")
-    return b"FVCT" + bytes(body)
-
-
-def _put_name(body: bytearray, name: str) -> None:
-    nb = name.encode("mac-roman") + b"\x00"
-    body[0xC6 - 4:0xC6 - 4 + len(nb)] = nb
+    if late:
+        body = bytearray(_FVCT_BODY)
+        struct.pack_into(">I", body, 8, 0x08000601)
+        rec_bytes = b"FVCT" + bytes(body)
+        rec_bytes += b"if.version < 8\x00"
+        return rec_bytes
+    else:
+        body = bytearray(198)
+        struct.pack_into(">I", body, 8, 0x08000601)
+        body[184:184 + 16] = b"if.version < 8"
+        return b"FVCT" + bytes(body)
 
 
 def _crc(b: bytes) -> int:

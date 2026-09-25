@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "installer-vise"
 version = "0.1.0"
-description = "Experimental extractor for Installer VISE 3.x archives (reverse-engineered classic-Mac format)"
+description = "Experimental extractor for Installer VISE 3.x archives, supporting both compressed-catalog and raw-catalog variants"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

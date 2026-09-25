@@ -21,8 +21,9 @@ def test_inspect(archive_file, capsys):
     rc = main(["inspect", str(archive_file)])
     assert rc == EXIT_OK
     out = capsys.readouterr().out
-    assert "1 files" in out or "records      : 1 files" in out
+    assert "1 files" in out
     assert "shared blocks: 0" in out
+    assert "vise3_late" in out
 
 
 def test_extract_success(archive_file, tmp_path, capsys):

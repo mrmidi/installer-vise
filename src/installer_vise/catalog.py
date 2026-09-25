@@ -3,14 +3,23 @@
 The decoded catalog body is a flat sequence of variable-length records,
 each starting with a 4-byte signature:
 
-* ``FVCT`` — file record: signature + 194-byte fixed body + name.
+* ``FVCT`` — file record: fixed body + variable-length name.
 * ``DVCT`` — directory record: name is what extraction cares about.
 * anything else — installer-script condition/action records; skipped.
 
+Two layout profiles are currently known:
+
+* **VISE3_LATE**: name at record offset 0xC6, fixed body 194 bytes
+  (validated on Minolta DiMAGE Scan 1.1.5d).
+* **VISE_EARLY**: name at record offset 0xBC, fixed body 184 bytes
+  (validated on Cythera 1.0.4).
+
 ``FVCT`` field meanings are **overloaded by mode** (plain vs shared-block
 member); see :attr:`Record.is_shared` and ``docs/catalog-records.md``.
-All multi-byte fields are big-endian; runtime offset = serialized + 24 for
-the fields cross-checked against the installer code.
+All multi-byte fields are big-endian.
+
+Field offsets in this module are relative to the record start (the FVCT
+signature is at offset 0).
 """
 
 from __future__ import annotations
@@ -27,9 +36,6 @@ SIG_DIR = b"DVCT"
 
 _FLAG_CONDITION = 0x08000000   # condition/action record, not a file
 _FLAG_SHARED = 0x10000000      # member of a shared block
-
-_FVCT_BODY = 194
-_NAME_OFF = 0xC6
 
 
 @dataclass(frozen=True)
@@ -104,24 +110,45 @@ class Catalog:
         return [r for r in self.files if r.name == name]
 
 
-def _name_at(body: bytes, off: int) -> str:
+def _name_at_late(body: bytes, off: int) -> str:
+    """Extract NUL-terminated name (VISE3_LATE profile)."""
     end = body.find(b"\0", off)
     if end < 0:
         end = len(body)
     return body[off:end].decode("mac-roman", "replace")
 
 
-def parse_catalog(body: bytes) -> Catalog:
-    """Parse a decoded CVCT body into a :class:`Catalog`."""
+def _name_at_early(body: bytes, off: int, rec_end: int) -> str:
+    """Extract name with no NUL terminator (VISE_EARLY profile).
+
+    The name runs from ``off`` to ``rec_end`` (the start of the next
+    record).  Trailing non-printable bytes are stripped.
+    """
+    raw = body[off:rec_end]
+    # Strip trailing bytes that are unlikely to be part of the name.
+    end = len(raw)
+    while end > 0 and raw[end - 1] < 0x20:
+        end -= 1
+    return raw[:end].decode("mac-roman", "replace")
+
+
+def parse_catalog(body: bytes, *, name_offset: int = 0xC6) -> Catalog:
+    """Parse a decoded CVCT body into a :class:`Catalog`.
+
+    ``name_offset`` is the byte offset of the name from the FVCT
+    signature (0xC6 for VISE3_LATE, 0xBC for VISE_EARLY).
+    """
     files: list[Record] = []
     directories: list[str] = []
     skipped = 0
+
+    is_early = (name_offset < 0xC6)
 
     sigs: list[tuple[int, bytes]] = []
     # Sequential signature scan (records are variable-length).
     # TODO: replace with structural sequential parsing — literal "FVCT"/"DVCT"
     # byte sequences inside a filename/metadata can produce false record
-    # boundaries. Revisit once a second archive is available to confirm the
+    # boundaries. Revisit once more archives are available to confirm the
     # real framing rule.
     pos = 0
     while pos < len(body) - 4:
@@ -138,30 +165,45 @@ def parse_catalog(body: bytes) -> Catalog:
     for i, (p, sig) in enumerate(sigs):
         end = sigs[i + 1][0] if i + 1 < len(sigs) else len(body)
         rec = body[p:end]
-        name = _name_at(rec, _NAME_OFF) if len(rec) > _NAME_OFF else ""
+        rec_len = end - p
+
         if sig == SIG_DIR:
+            if is_early:
+                name = _name_at_early(body, p + name_offset, end)
+            else:
+                name = _name_at_late(rec, name_offset)
             directories.append(name)
             continue
-        if len(rec) < 4 + _FVCT_BODY:
+
+        # Minimum FVCT: signature + fixed body up to slice_off_r (108+4=112).
+        if rec_len < 112:
             skipped += 1
             continue
-        body_ = rec[4:4 + _FVCT_BODY]
-        flags, = struct.unpack_from(">I", body_, 12 - 4)
+
+        # Fields are at fixed offsets from the record start.
+        flags = struct.unpack_from(">I", rec, 12)[0]
         if flags & _FLAG_CONDITION:
             skipped += 1
             continue
-        ftype = body_[44 - 4:48 - 4].decode("mac-roman", "replace")
-        creator = body_[48 - 4:52 - 4].decode("mac-roman", "replace")
-        stored_d, = struct.unpack_from(">I", body_, 68 - 4)
-        size_d, = struct.unpack_from(">I", body_, 72 - 4)
-        stored_r, = struct.unpack_from(">I", body_, 76 - 4)
-        size_r, = struct.unpack_from(">I", body_, 80 - 4)
-        record_crc, = struct.unpack_from(">I", body_, 84 - 4)
-        crc_slot_b, = struct.unpack_from(">I", body_, 88 - 4)
-        src_raw, = struct.unpack_from(">I", body_, 96 - 4)
-        block_offset, = struct.unpack_from(">I", body_, 100 - 4)
-        slice_off_d, = struct.unpack_from(">I", body_, 104 - 4)
-        slice_off_r, = struct.unpack_from(">I", body_, 108 - 4)
+
+        ftype = rec[44:48].decode("mac-roman", "replace")
+        creator = rec[48:52].decode("mac-roman", "replace")
+        stored_d, = struct.unpack_from(">I", rec, 68)
+        size_d, = struct.unpack_from(">I", rec, 72)
+        stored_r, = struct.unpack_from(">I", rec, 76)
+        size_r, = struct.unpack_from(">I", rec, 80)
+        record_crc, = struct.unpack_from(">I", rec, 84)
+        crc_slot_b, = struct.unpack_from(">I", rec, 88)
+        src_raw, = struct.unpack_from(">I", rec, 96)
+        block_offset, = struct.unpack_from(">I", rec, 100)
+        slice_off_d, = struct.unpack_from(">I", rec, 104)
+        slice_off_r, = struct.unpack_from(">I", rec, 108)
+
+        if is_early:
+            name = _name_at_early(body, p + name_offset, end)
+        else:
+            name = _name_at_late(rec, name_offset)
+
         files.append(Record(
             catalog_offset=p,
             flags=flags,

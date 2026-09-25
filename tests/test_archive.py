@@ -16,17 +16,25 @@ def test_header_facts():
         [Rec("x", Fork(data=b"x"), shared=False)]))
     assert arc.info.has_pef
     assert arc.info.payload_offset == 0x3C     # after SVCT + PEF magic
-    assert arc.info.stream_end == arc.info.size   # stream ends exactly at EOF
+    assert arc.info.profile == "vise3_late"
+    assert arc.info.catalog_offset_in_stream + arc.info.catalog_span == arc.info.size
 
 
-def test_stream_span_is_compressed_size():
+def test_stream_span_is_stored_size():
     data = build_archive([Rec("x", Fork(data=b"x"), shared=False)])
     arc = Archive.from_bytes(data)
     cvct_off = arc.info.catalog_offset
     span, = struct.unpack_from(">I", data, cvct_off + 4)
-    assert span == arc.info.stream_span
-    # definitional: the span covers the stream exactly to EOF
-    assert arc.info.stream_offset + span == arc.info.size
+    assert span == arc.info.catalog_span
+    assert arc.info.catalog_offset_in_stream + span == arc.info.size
+
+
+def test_early_profile_detected():
+    arc = Archive.from_bytes(build_archive(
+        [Rec("x", Fork(data=b"x"), shared=False)], with_pef=False))
+    assert not arc.info.has_pef
+    assert arc.info.profile == "vise_early"
+    assert arc.info.catalog_encoding == "deflate"  # synth always DEFLATE-encodes
 
 
 @pytest.mark.parametrize("mutate", [

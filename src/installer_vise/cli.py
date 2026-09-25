@@ -44,7 +44,8 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     print(f"installer PEF: {'yes' if arc.info.has_pef else 'no'}")
     print(f"payload      : {arc.info.payload_offset:#x}")
     print(f"catalog      : {arc.info.catalog_offset:#x}, "
-          f"stream {arc.info.stream_offset:#x}..{arc.info.stream_end:#x}")
+          f"encoding {arc.info.catalog_encoding}")
+    print(f"profile      : {arc.info.profile}")
     print(f"records      : {len(arc.catalog.files)} files, "
           f"{len(arc.catalog.directories)} directories, "
           f"{arc.catalog.skipped} condition/action")

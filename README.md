@@ -2,15 +2,16 @@
 
 Experimental, dependency-free Python extractor for **Installer VISE 3.x**
 archives (MindVision, classic Mac OS) — reverse-engineered end-to-end and
-currently validated against one fully verified reference archive:
+validated against two unrelated reference archives from different eras:
 
 ```text
-1288/1288 file records extracted, CRC32-verified, 0 failures
+VISE3_LATE  (2004)  1288/1288 records extracted, CRC32-verified, 0 failures
+VISE_EARLY  (1999)    33/33  records extracted, CRC32-verified, 0 failures
 ```
 
-Status: **alpha** — generic VISE 3.x support is not yet demonstrated. See
-[Scope notes](#scope-notes) and `docs/validation.md` for what is and isn't
-proven.
+Status: **alpha** — two archive families validated; more needed for
+confidence. See [Scope notes](#scope-notes) and `docs/validation.md` for
+what is and isn't proven.
 
 ## Why this exists
 
@@ -93,16 +94,22 @@ tests/            pytest suite (synthetic archives + real-file regression)
 
 ## Scope notes
 
-* **One archive validated.** This is a clean reverse-engineering of a single
-  Installer VISE 3.x installer. It is *not yet* a general-purpose VISE
-  extractor. Two more unrelated installers (ideally one older, one
-  multi-volume) would raise confidence significantly.
+* **Two archives validated.** This implementation has been verified against
+  one late-generation (VISE3_LATE, compressed catalog, ~2004) and one
+  early-generation (VISE_EARLY, raw catalog, ~1999) installer. The two
+  share the same SVCT/CVCT/PACK chain, SUBST table, DEFLATE codec, and
+  CRC model. Two more unrelated installers (ideally one multi-volume)
+  would raise confidence further.
+* **Version-dependent behavior detected.** Catalog encoding (raw vs
+  DEFLATE), embedded PEF presence, FVCT body layout (name at +0xC6 vs
+  +0xBC), and post-catalog data placement all vary between generations.
+  The correct profile is detected from structural evidence, not guessed.
 * DES/eSellerate and ZipCrypto gates exist in the VISE runtime but are
   unused in ordinary archives; they are documented but not implemented.
 * `'PsWd'` password-protected archives are not supported (none was
   available for analysis).
-* Raw/stored fork mode (`record+142 bit7`) is unused by this archive
-  family and currently unimplemented.
+* Raw/stored fork mode (`record+142 bit7`) is unused by the validated
+  archives and currently unimplemented.
 * Multi-source (`inArchive = 0`) records are reported but shared blocks
   from unavailable sources are not yet handled correctly.
 
