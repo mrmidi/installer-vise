@@ -19,7 +19,8 @@ EXIT_PARTIAL = 2
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="installer-vise",
-        description="Extract Installer VISE 3.x archives (classic Mac OS).")
+        description="Extract Installer VISE 3.x archives (classic Mac OS). "
+                    "Experimental — validated on one reference archive only.")
     p.add_argument("--version", action="version",
                    version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="command", required=True)

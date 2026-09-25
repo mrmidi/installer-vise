@@ -1,12 +1,16 @@
 # installer-vise
 
-A clean, dependency-free Python extractor for **Installer VISE 3.x**
-archives (MindVision, classic Mac OS) — reverse-engineered end-to-end from
-a real archive with every extracted file verified by the installer's own CRC.
+Experimental, dependency-free Python extractor for **Installer VISE 3.x**
+archives (MindVision, classic Mac OS) — reverse-engineered end-to-end and
+currently validated against one fully verified reference archive:
 
 ```text
 1288/1288 file records extracted, CRC32-verified, 0 failures
 ```
+
+Status: **alpha** — generic VISE 3.x support is not yet demonstrated. See
+[Scope notes](#scope-notes) and `docs/validation.md` for what is and isn't
+proven.
 
 ## Why this exists
 
@@ -37,8 +41,8 @@ installer-vise inspect "SomeInstaller"
 installer-vise extract  "SomeInstaller" -o extracted/
 ```
 
-Exit codes: `0` success · `1` not a VISE archive · `2` extraction completed
-with per-record failures.
+Exit codes: `0` success · `1` input or format error (missing file, not a VISE
+archive) · `2` extraction completed with per-record failures.
 
 ## Library use
 
@@ -89,12 +93,18 @@ tests/            pytest suite (synthetic archives + real-file regression)
 
 ## Scope notes
 
+* **One archive validated.** This is a clean reverse-engineering of a single
+  Installer VISE 3.x installer. It is *not yet* a general-purpose VISE
+  extractor. Two more unrelated installers (ideally one older, one
+  multi-volume) would raise confidence significantly.
 * DES/eSellerate and ZipCrypto gates exist in the VISE runtime but are
   unused in ordinary archives; they are documented but not implemented.
 * `'PsWd'` password-protected archives are not supported (none was
   available for analysis).
 * Raw/stored fork mode (`record+142 bit7`) is unused by this archive
   family and currently unimplemented.
+* Multi-source (`inArchive = 0`) records are reported but shared blocks
+  from unavailable sources are not yet handled correctly.
 
 ## License
 

@@ -1,7 +1,8 @@
-"""installer-vise — extractor for Installer VISE 3.x archives.
+"""installer-vise — experimental extractor for Installer VISE 3.x archives.
 
-Reverse-engineered, dependency-free Python package.  See ``docs/`` in the
-repository for the complete format specification and validation log.
+Reverse-engineered, dependency-free Python package.  Currently validated
+against one reference archive.  See ``docs/`` in the repository for the
+complete format specification and validation log.
 """
 
 from .archive import Archive

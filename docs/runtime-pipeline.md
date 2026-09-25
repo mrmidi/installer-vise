@@ -42,8 +42,8 @@ sub_15000 (extraction entry)
 ## Runtime record ↔ serialized catalog mapping
 
 `sub_7B4C` repacks the 194-byte serialized `FVCT` body into a 270-byte
-runtime record with stride 0x416 (1062): **runtime offset = catalog + 24**
-for the fields we cross-checked:
+runtime record; the field mappings below were individually traced (there is
+no constant offset between serialized and runtime layouts):
 
 | runtime | catalog | meaning |
 |---|---|---|

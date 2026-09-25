@@ -83,17 +83,22 @@ def _clean_name(name: str, catalog_offset: int) -> str:
         name = name[:-4]
     name = "".join("_" if c in _FORBIDDEN or ord(c) < 32 else c for c in name)
     name = name.strip()
+    if name in (".", ".."):
+        name = f"{name}_{catalog_offset:x}"
     return name or f"unnamed_{catalog_offset:x}"
 
 
 def _unique(name: str, used: set[str], catalog_offset: int) -> str:
-    if name not in used:
+    # Case-insensitive: macOS volumes commonly collide on case-folded names.
+    low = name.lower()
+    if low not in {n.lower() for n in used}:
         used.add(name)
         return name
     stem, dot, ext = name.rpartition(".")
     candidate = f"{stem} (r{catalog_offset:x}).{ext}" if dot else \
         f"{name} (r{catalog_offset:x})"
-    while candidate in used:
+    existing = {n.lower() for n in used}
+    while candidate.lower() in existing:
         candidate += "_"
     used.add(candidate)
     return candidate
@@ -154,11 +159,6 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
                    wrote=True)
 
     # ---- shared blocks: decode once, slice per member --------------------
-    shared_by_offset: dict[int, list] = {}
-    for rec in arc.catalog.files:
-        if rec.is_shared:
-            shared_by_offset.setdefault(rec.block_offset, []).append(rec)
-
     for blk in arc.catalog.blocks:
         try:
             pool, consumed = arc.decode_block(blk.offset, blk.stored,

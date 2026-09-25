@@ -67,9 +67,9 @@ CVCT body (298,519 bytes); "payload" = the archive's file-payload region.
 
 ## Negative results worth keeping
 
-* **`inblk` was a red herring**: the "inblk" 24/26/43 values at catalog +88
-  in early parses were actually low CRC32 values (shared rsrc CRC slot),
-  not offsets.
+* **`+88` is unresolved**: early hypotheses (resource CRC slot, "inblk"
+  offset) were disproven — low values at +88 are just low CRC32 bytes from
+  +84 wrapping. No runtime consumer reads +88. Treated as **unknown**.
 * **No hidden codecs**: the installer's own resource fork contains only
   Dcmp #1004/#1005; no second decompressor exists.
 * **No password**: no `'PsWd'` resource; the ZipCrypto gate is dead code.

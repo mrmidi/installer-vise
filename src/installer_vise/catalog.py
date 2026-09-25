@@ -46,7 +46,7 @@ class Record:
     stored_r: int              # +76 plain: rsrc stream  | shared: block expanded total
     size_r: int                # +80 plain: expanded rsrc | shared: rsrc slice len
     record_crc: int            # +84 CRC32(data || rsrc)
-    crc_slot_b: int            # +88 (unnamed; NOT a resource CRC)
+    crc_slot_b: int            # +88 (unknown; no runtime consumer)
     source_index: int          # +96 hi16
     in_archive: bool           # +96 lo16 == 1 → stored in this file
     block_offset: int          # +100 stream/block offset in the archive
@@ -119,6 +119,10 @@ def parse_catalog(body: bytes) -> Catalog:
 
     sigs: list[tuple[int, bytes]] = []
     # Sequential signature scan (records are variable-length).
+    # TODO: replace with structural sequential parsing — literal "FVCT"/"DVCT"
+    # byte sequences inside a filename/metadata can produce false record
+    # boundaries. Revisit once a second archive is available to confirm the
+    # real framing rule.
     pos = 0
     while pos < len(body) - 4:
         sig = body[pos:pos + 4]

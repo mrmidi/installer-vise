@@ -29,7 +29,7 @@ offset  size  plain meaning                       shared meaning
 +76     4     stored size, resource fork stream   expanded size of the whole block
 +80     4     expanded size, resource fork        length of this record's rsrc slice
 +84     4     record CRC32  (see below)           record CRC32  (same rule)
-+88     4     (not a CRC in our tests; unnamed)   (same; do not use)
++88     4     (unknown; no runtime consumer found)   (same; do not use)
 +92     4     (unnamed)
 +96     4     source selector:  hi16 = source index
                                                   lo16 = 1 → stored in this archive
@@ -46,7 +46,7 @@ Reference-archive field verification status:
 | shared +104 = data slice offset (equals running cursor) | 1196/1196 records |
 | shared +108 = +104 + +72 (rsrc slice offset) | 33/33 slices |
 | shared +76 = Σ(member data lens + rsrc lens) = block expanded total | 62/62 blocks |
-| block tiling: +68(offset) + +76(stored) = next block offset | 62/62 |
+| block tiling: block_offset(+100) + stored_size(+68) = next block's +100 | 62/62 |
 | +96 lo16 = inArchive flag (0 ⇔ the 5 missing records) | 1293/1293 |
 
 ### CRC rule (single, uniform)
