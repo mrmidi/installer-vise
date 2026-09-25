@@ -23,7 +23,7 @@ def test_inspect(archive_file, capsys):
     out = capsys.readouterr().out
     assert "1 files" in out
     assert "shared blocks: 0" in out
-    assert "vise3_late" in out
+    assert "vise_compressed_catalog" in out
 
 
 def test_extract_success(archive_file, tmp_path, capsys):

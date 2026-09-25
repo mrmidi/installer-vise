@@ -113,10 +113,11 @@ def build_archive(records: list[Rec], *, with_pef: bool = True) -> bytes:
     payload_end = off
 
     # catalog body
-    # Layout profile depends on PEF presence: late (Minolta) uses 194-byte
-    # body with name at 0xC6; early (Cythera) uses 184-byte body with name
-    # at 0xBC.
-    use_late = with_pef
+    # Layout profile depends on catalog encoding: late (Minolta,
+    # Crescendo) uses 194-byte body with name at 0xC6; early (Cythera)
+    # uses 198-byte body with name at 0xBA. The synth always creates
+    # DEFLATE catalogs, so it always uses the late layout.
+    use_late = True
     cat = bytearray()
     for s in streams:
         if s.members:

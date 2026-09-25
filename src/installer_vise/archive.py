@@ -92,11 +92,6 @@ class Archive:
 
         has_pef = data[0x30:0x3C] == _PEF_MAGIC
 
-        # Detect profile from structural evidence.
-        profile = "vise3_late" if has_pef else "vise_early"
-        name_offset = (_NAME_OFF_VISE3_LATE if has_pef
-                       else _NAME_OFF_VISE_EARLY)
-
         # CVCT header at catalog_offset; PACK header follows.
         cvct = data[catalog_offset:catalog_offset + _CVCT_HEADER]
         if len(cvct) < _CVCT_HEADER or cvct[:4] != _CVCT_MAGIC:
@@ -118,12 +113,22 @@ class Archive:
 
         catalog_raw = data[stream_offset:stream_end]
 
-        # Detect catalog encoding.
+        # Detect catalog encoding from structural evidence.
+        # The first 4 bytes of the stored catalog payload are FVCT/DVCT
+        # for raw catalogs, or a DEFLATE header for compressed ones.
         if catalog_raw[:4] in (b"FVCT", b"DVCT"):
             catalog_encoding = "raw"
-            catalog_body = catalog_raw
+            name_offset = _NAME_OFF_VISE_EARLY  # 0xBA
+            profile = "vise_raw_catalog"
         else:
             catalog_encoding = "deflate"
+            name_offset = _NAME_OFF_VISE3_LATE  # 0xC6
+            profile = "vise_compressed_catalog"
+
+        # Decode catalog.
+        if catalog_encoding == "raw":
+            catalog_body = catalog_raw
+        else:
             out, consumed = inflate_span(catalog_raw, 0)
             if consumed != len(catalog_raw):
                 raise ViseFormatError(
@@ -144,6 +149,9 @@ class Archive:
             pack_count=pack_count,
             profile=profile,
         )
+
+    # ------------------------------------------------------------------
+    # Attributes: data, info, catalog, source_path from the dataclass.
         return cls(data=data, info=info, catalog=catalog, source_path=source)
 
     # ------------------------------------------------------------ payloads --

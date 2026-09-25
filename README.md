@@ -2,16 +2,18 @@
 
 Experimental, dependency-free Python extractor for **Installer VISE 3.x**
 archives (MindVision, classic Mac OS) — reverse-engineered end-to-end and
-validated against two unrelated reference archives from different eras:
+validated against three unrelated reference archives spanning 1999–2005:
 
 ```text
-VISE3_LATE  (2004)  1288/1288 records extracted, CRC32-verified, 0 failures
-VISE_EARLY  (1999)    33/33  records extracted, CRC32-verified, 0 failures
+Compressed catalog + PEF     (2004)  1288/1288 records, CRC32-verified
+Compressed catalog, no PEF   (2005)      9/9 records, CRC32-verified
+Raw catalog, no PEF          (1999)    33/33 records, CRC32-verified
 ```
 
-Status: **alpha** — two archive families validated; more needed for
-confidence. See [Scope notes](#scope-notes) and `docs/validation.md` for
-what is and isn't proven.
+Status: **alpha** — three archive families validated; a multi-volume
+archive would raise confidence further. See
+[Scope notes](#scope-notes) and `docs/validation.md` for what is and
+isn't proven.
 
 ## Why this exists
 
@@ -94,16 +96,16 @@ tests/            pytest suite (synthetic archives + real-file regression)
 
 ## Scope notes
 
-* **Two archives validated.** This implementation has been verified against
-  one late-generation (VISE3_LATE, compressed catalog, ~2004) and one
-  early-generation (VISE_EARLY, raw catalog, ~1999) installer. The two
-  share the same SVCT/CVCT/PACK chain, SUBST table, DEFLATE codec, and
-  CRC model. Two more unrelated installers (ideally one multi-volume)
-  would raise confidence further.
+* **Three archives validated across two catalog formats.** Verified against
+  a compressed-catalog archive with PEF (~2004), a compressed-catalog
+  archive without PEF (~2005), and a raw-catalog archive (~1999). All
+  three share the same SVCT/CVCT/PACK chain, SUBST table, DEFLATE codec,
+  and CRC model.
 * **Version-dependent behavior detected.** Catalog encoding (raw vs
   DEFLATE), embedded PEF presence, FVCT body layout (name at +0xC6 vs
-  +0xBC), and post-catalog data placement all vary between generations.
-  The correct profile is detected from structural evidence, not guessed.
+  +0xBA), and post-catalog data placement all vary between generations.
+  The correct layout is detected from structural evidence (catalog
+  encoding), not guessed from PEF presence.
 * DES/eSellerate and ZipCrypto gates exist in the VISE runtime but are
   unused in ordinary archives; they are documented but not implemented.
 * `'PsWd'` password-protected archives are not supported (none was

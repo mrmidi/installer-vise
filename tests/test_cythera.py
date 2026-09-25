@@ -36,7 +36,7 @@ def extracted(tmp_path_factory, vise_early_archive: Path):
 
 def test_profile(extracted):
     arc, _, _ = extracted
-    assert arc.info.profile == "vise_early"
+    assert arc.info.profile == "vise_raw_catalog"
     assert arc.info.catalog_encoding == "raw"
     assert not arc.info.has_pef
 

@@ -30,7 +30,7 @@ def test_info(extracted, reference_archive):
     arc, _, _ = extracted
     assert arc.info.size == reference_archive.stat().st_size
     assert arc.info.has_pef
-    assert arc.info.profile == "vise3_late"
+    assert arc.info.profile == "vise_compressed_catalog"
     assert arc.info.catalog_encoding == "deflate"
 
 

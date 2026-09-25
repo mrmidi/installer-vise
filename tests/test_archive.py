@@ -16,7 +16,7 @@ def test_header_facts():
         [Rec("x", Fork(data=b"x"), shared=False)]))
     assert arc.info.has_pef
     assert arc.info.payload_offset == 0x3C     # after SVCT + PEF magic
-    assert arc.info.profile == "vise3_late"
+    assert arc.info.profile == "vise_compressed_catalog"
     assert arc.info.catalog_offset_in_stream + arc.info.catalog_span == arc.info.size
 
 
@@ -29,11 +29,11 @@ def test_stream_span_is_stored_size():
     assert arc.info.catalog_offset_in_stream + span == arc.info.size
 
 
-def test_early_profile_detected():
+def test_no_pef_detected():
     arc = Archive.from_bytes(build_archive(
         [Rec("x", Fork(data=b"x"), shared=False)], with_pef=False))
     assert not arc.info.has_pef
-    assert arc.info.profile == "vise_early"
+    assert arc.info.profile == "vise_compressed_catalog"
     assert arc.info.catalog_encoding == "deflate"  # synth always DEFLATE-encodes
 
 

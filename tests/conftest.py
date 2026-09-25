@@ -27,6 +27,11 @@ REFERENCE_ARCHIVES = {
         PKG_ROOT.parent / "Cythera Installer",
         PKG_ROOT / "archive" / "Cythera Installer",
     ],
+    "vise_compressed_no_pef": [
+        PKG_ROOT / "tmp" / "Crescendo:Enc Ins 2.3.1",
+        PKG_ROOT.parent / "Crescendo:Enc Ins 2.3.1",
+        PKG_ROOT / "archive" / "Crescendo:Enc Ins 2.3.1",
+    ],
 }
 
 
@@ -50,6 +55,14 @@ def vise_early_archive() -> Path:
     path = _find_archive(REFERENCE_ARCHIVES["vise_early"])
     if path is None:
         pytest.skip("VISE_EARLY reference archive not available")
+    return path
+
+
+@pytest.fixture(scope="session")
+def vise_compressed_no_pef_archive() -> Path:
+    path = _find_archive(REFERENCE_ARCHIVES["vise_compressed_no_pef"])
+    if path is None:
+        pytest.skip("Compressed-catalog-no-PEF reference archive not available")
     return path
 
 
