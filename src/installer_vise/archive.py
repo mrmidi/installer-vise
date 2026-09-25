@@ -46,11 +46,6 @@ _SVCT_PAYLOAD_OFF = 0x1C     # optional first-payload/PEF boundary
 _CVCT_HEADER = 0x14          # CVCT header size (20 bytes)
 _PACK_HEADER = 0x50          # PACK header size
 
-# FVCT name offset from record start (FVCT signature = offset 0).
-# Late 3.x: 0xC6 (Minolta). Early 3.x: 0xBC (Cythera).
-_NAME_OFF_VISE3_LATE = 0xC6
-_NAME_OFF_VISE_EARLY = 0xBC
-
 
 @dataclass(frozen=True)
 class ArchiveInfo:
@@ -123,15 +118,15 @@ class Archive:
         # for raw catalogs, or a DEFLATE header for compressed ones.
         if catalog_raw[:4] in (b"FVCT", b"DVCT"):
             catalog_encoding = "raw"
-            name_offset = _NAME_OFF_VISE_EARLY  # 0xBA
+            is_raw = True
             profile = "vise_raw_catalog"
         else:
             catalog_encoding = "deflate"
-            name_offset = _NAME_OFF_VISE3_LATE  # 0xC6
+            is_raw = False
             profile = "vise_compressed_catalog"
 
         # Decode catalog.
-        if catalog_encoding == "raw":
+        if is_raw:
             catalog_body = catalog_raw
         else:
             out, consumed = inflate_span(catalog_raw, 0)
@@ -141,7 +136,9 @@ class Archive:
                     f"{len(catalog_raw)} bytes")
             catalog_body = out
 
-        catalog = parse_catalog(catalog_body, name_offset=name_offset)
+        # Name offset is detected from the catalog data itself (via the
+        # filename length byte at record offset 0x7A).
+        catalog = parse_catalog(catalog_body, is_raw_catalog=is_raw)
 
         info = ArchiveInfo(
             size=len(data),

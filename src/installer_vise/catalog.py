@@ -3,16 +3,28 @@
 The decoded catalog body is a flat sequence of variable-length records,
 each starting with a 4-byte signature:
 
-* ``FVCT`` — file record: fixed body + variable-length name.
+* ``FVCT`` — file record: fixed core body + variable-length name.
 * ``DVCT`` — directory record: name is what extraction cares about.
 * anything else — installer-script condition/action records; skipped.
 
-Two layout profiles are currently known:
+**Name offset detection.**
 
-* **VISE3_LATE**: name at record offset 0xC6, fixed body 194 bytes
-  (validated on Minolta DiMAGE Scan 1.1.5d).
-* **VISE_EARLY**: name at record offset 0xBC, fixed body 184 bytes
-  (validated on Cythera 1.0.4).
+The name offset is not hardcoded per archive. Instead, it is derived from
+the catalog itself:
+
+1. Record offset ``+0x7A`` contains the filename length as a single byte
+   (independently corroborated by old VCT notes describing a "one-byte
+   name length" at exactly this position).
+2. Given length ``n``, the name is located by:
+   * For NUL-terminated catalogs (DEFLATE-compressed): scanning the tail
+     for a NUL byte and checking that the preceding ``n`` bytes form a
+     valid MacRoman filename.
+   * For raw catalogs (Cythera-style): ``name_start = record_end - n``.
+3. The modal name-start offset across all genuine FVCT records is used
+   for the archive.
+
+This handles the known name offsets (0xBA, 0xBE, 0xC6) without
+archive profiling, and should adapt to new layouts automatically.
 
 ``FVCT`` field meanings are **overloaded by mode** (plain vs shared-block
 member); see :attr:`Record.is_shared` and ``docs/catalog-records.md``.
@@ -25,6 +37,7 @@ signature is at offset 0).
 from __future__ import annotations
 
 import struct
+from collections import Counter
 from dataclasses import dataclass
 
 from .errors import ViseFormatError
@@ -36,6 +49,8 @@ SIG_DIR = b"DVCT"
 
 _FLAG_CONDITION = 0x08000000   # condition/action record, not a file
 _FLAG_SHARED = 0x10000000      # member of a shared block
+
+_NAME_LENGTH_OFF = 0x7A        # record offset of the 1-byte filename length
 
 
 @dataclass(frozen=True)
@@ -110,46 +125,141 @@ class Catalog:
         return [r for r in self.files if r.name == name]
 
 
-def _name_at_late(body: bytes, off: int) -> str:
-    """Extract NUL-terminated name (VISE3_LATE profile)."""
-    end = body.find(b"\0", off)
-    if end < 0:
-        end = len(body)
-    return body[off:end].decode("mac-roman", "replace")
+def _is_printable_macroman(data: bytes) -> bool:
+    """Check if bytes look like a reasonable MacRoman filename."""
+    if not data:
+        return False
+    # Allow high bytes (MacRoman extended), spaces, dots, punctuation.
+    # Reject all control characters including NUL.
+    for b in data:
+        if b < 0x20:
+            return False
+    return True
 
 
-def _name_at_early(body: bytes, off: int, rec_end: int) -> str:
-    """Extract name with no NUL terminator (VISE_EARLY profile).
+def _find_name_at_offset(rec: bytes, start: int, length: int) -> str | None:
+    """Try to extract a filename of `length` bytes starting at `start`."""
+    if start < 0 or start + length > len(rec):
+        return None
+    raw = rec[start:start + length]
+    if not _is_printable_macroman(raw):
+        return None
+    return raw.decode("mac-roman", "replace")
 
-    The name runs from ``off`` to ``rec_end`` (the start of the next
-    record).  Trailing non-printable bytes are stripped.
+
+def _plausible_name(name: str) -> bool:
+    """Check if an extracted name looks like a real filename."""
+    if not name or len(name) > 100:
+        return False
+    # Reject names containing record signatures (indicates false positive).
+    if b"FVCT" in name.encode("mac-roman", "ignore"):
+        return False
+    if b"DVCT" in name.encode("mac-roman", "ignore"):
+        return False
+    # Reject names that are mostly non-ASCII (likely binary).
+    ascii_count = sum(1 for c in name if ord(c) < 128)
+    if ascii_count < len(name) * 0.5:
+        return False
+    return True
+
+
+def _detect_name_offset(sigs: list[tuple[int, bytes]], body: bytes,
+                        is_raw_catalog: bool) -> int:
+    """Derive the FVCT name-start offset from the catalog itself.
+
+    Uses the filename length at record offset 0x7A and validates candidate
+    positions against the data. Tries both NUL-terminated and record-
+    boundary-terminated name layouts.
     """
-    raw = body[off:rec_end]
-    # Strip trailing bytes that are unlikely to be part of the name.
-    end = len(raw)
-    while end > 0 and raw[end - 1] < 0x20:
-        end -= 1
-    return raw[:end].decode("mac-roman", "replace")
+    # Histogram of start_offset → count.
+    candidates: Counter[int] = Counter()
+
+    for i, (pos, sig) in enumerate(sigs):
+        if sig != SIG_FILE:
+            continue
+        end = sigs[i + 1][0] if i + 1 < len(sigs) else len(body)
+        rec = body[pos:end]
+        rec_len = end - pos
+
+        if rec_len < _NAME_LENGTH_OFF + 1:
+            continue
+
+        # Validate core fields to filter false positives.
+        if rec_len < 0x70:
+            continue
+        flags = struct.unpack_from(">I", rec, 12)[0]
+        if flags & _FLAG_CONDITION:
+            continue
+
+        ftype = rec[44:48]
+        # Type should be printable 4CC or zeros.
+        if not all(0x20 <= b < 0x7f or b == 0 for b in ftype):
+            continue
+
+        n = rec[_NAME_LENGTH_OFF]
+        if n == 0 or n > 100:
+            continue
+
+        # Approach 1: name runs to record boundary.
+        start_boundary = rec_len - n
+        if start_boundary >= 0x7B:
+            name = _find_name_at_offset(rec, start_boundary, n)
+            if name is not None and _plausible_name(name):
+                candidates[start_boundary] += 1
+
+        # Approach 2: name is NUL-terminated within the record.
+        for start in range(0xB0, min(rec_len - n, 0xF0)):
+            if rec[start + n] != 0:
+                continue
+            name = _find_name_at_offset(rec, start, n)
+            if name is not None and _plausible_name(name):
+                candidates[start] += 1
+
+    if not candidates:
+        # Fallback to most common known offset.
+        return 0xC6
+
+    # Use the modal offset.
+    best = candidates.most_common(1)[0]
+    return best[0]
 
 
-def parse_catalog(body: bytes, *, name_offset: int = 0xC6) -> Catalog:
+def _extract_name(rec: bytes, rec_len: int, name_off: int,
+                  is_raw_catalog: bool) -> str:
+    """Extract the filename from a record given the known name offset."""
+    if name_off >= rec_len:
+        return ""
+
+    n = rec[_NAME_LENGTH_OFF]
+
+    if is_raw_catalog:
+        # Name runs to record boundary.
+        raw = rec[name_off:rec_len]
+    else:
+        # NUL-terminated.
+        end = rec.find(b"\0", name_off)
+        if end < 0:
+            end = rec_len
+        raw = rec[name_off:end]
+
+    return raw.decode("mac-roman", "replace")
+
+
+def parse_catalog(body: bytes, *,
+                  name_offset: int | None = None,
+                  is_raw_catalog: bool = False) -> Catalog:
     """Parse a decoded CVCT body into a :class:`Catalog`.
 
-    ``name_offset`` is the byte offset of the name from the FVCT
-    signature (0xC6 for VISE3_LATE, 0xBC for VISE_EARLY).
+    ``name_offset`` can be provided explicitly; otherwise it is detected
+    from the catalog data using the filename length byte at offset 0x7A.
     """
     files: list[Record] = []
     directories: list[str] = []
     skipped = 0
 
-    is_early = (name_offset < 0xC6)
-
     sigs: list[tuple[int, bytes]] = []
     # Sequential signature scan (records are variable-length).
-    # TODO: replace with structural sequential parsing — literal "FVCT"/"DVCT"
-    # byte sequences inside a filename/metadata can produce false record
-    # boundaries. Revisit once more archives are available to confirm the
-    # real framing rule.
+    # TODO: replace with structural sequential parsing using +0x7A length.
     pos = 0
     while pos < len(body) - 4:
         sig = body[pos:pos + 4]
@@ -162,25 +272,24 @@ def parse_catalog(body: bytes, *, name_offset: int = 0xC6) -> Catalog:
     if not sigs:
         raise ViseFormatError("no FVCT/DVCT records found in catalog body")
 
+    # Detect name offset if not provided.
+    if name_offset is None:
+        name_offset = _detect_name_offset(sigs, body, is_raw_catalog)
+
     for i, (p, sig) in enumerate(sigs):
         end = sigs[i + 1][0] if i + 1 < len(sigs) else len(body)
         rec = body[p:end]
         rec_len = end - p
 
         if sig == SIG_DIR:
-            if is_early:
-                name = _name_at_early(body, p + name_offset, end)
-            else:
-                name = _name_at_late(rec, name_offset)
+            name = _extract_name(rec, rec_len, name_offset, is_raw_catalog)
             directories.append(name)
             continue
 
-        # Minimum FVCT: signature + fixed body up to slice_off_r (108+4=112).
         if rec_len < 112:
             skipped += 1
             continue
 
-        # Fields are at fixed offsets from the record start.
         flags = struct.unpack_from(">I", rec, 12)[0]
         if flags & _FLAG_CONDITION:
             skipped += 1
@@ -199,10 +308,7 @@ def parse_catalog(body: bytes, *, name_offset: int = 0xC6) -> Catalog:
         slice_off_d, = struct.unpack_from(">I", rec, 104)
         slice_off_r, = struct.unpack_from(">I", rec, 108)
 
-        if is_early:
-            name = _name_at_early(body, p + name_offset, end)
-        else:
-            name = _name_at_late(rec, name_offset)
+        name = _extract_name(rec, rec_len, name_offset, is_raw_catalog)
 
         files.append(Record(
             catalog_offset=p,
