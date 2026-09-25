@@ -131,10 +131,7 @@ def _is_printable_macroman(data: bytes) -> bool:
         return False
     # Allow high bytes (MacRoman extended), spaces, dots, punctuation.
     # Reject all control characters including NUL.
-    for b in data:
-        if b < 0x20:
-            return False
-    return True
+    return all(b >= 32 for b in data)
 
 
 def _find_name_at_offset(rec: bytes, start: int, length: int) -> str | None:
@@ -158,9 +155,7 @@ def _plausible_name(name: str) -> bool:
         return False
     # Reject names that are mostly non-ASCII (likely binary).
     ascii_count = sum(1 for c in name if ord(c) < 128)
-    if ascii_count < len(name) * 0.5:
-        return False
-    return True
+    return not ascii_count < len(name) * 0.5
 
 
 def _detect_name_offset(sigs: list[tuple[int, bytes]], body: bytes,
@@ -230,7 +225,7 @@ def _extract_name(rec: bytes, rec_len: int, name_off: int,
     if name_off >= rec_len:
         return ""
 
-    n = rec[_NAME_LENGTH_OFF]
+    rec[_NAME_LENGTH_OFF]
 
     if is_raw_catalog:
         # Name runs to record boundary.

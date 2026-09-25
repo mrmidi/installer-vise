@@ -7,6 +7,8 @@ determines the FVCT record layout.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from installer_vise import Archive, RecordStatus, extract_archive

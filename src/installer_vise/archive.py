@@ -74,11 +74,11 @@ class Archive:
     # ---------------------------------------------------------------- open --
 
     @classmethod
-    def open(cls, path: str | Path) -> "Archive":
+    def open(cls, path: str | Path) -> Archive:
         return cls.from_bytes(Path(path).read_bytes(), source=Path(path))
 
     @classmethod
-    def from_bytes(cls, data: bytes, source: Path | None = None) -> "Archive":
+    def from_bytes(cls, data: bytes, source: Path | None = None) -> Archive:
         if len(data) < 0x30 or data[:4] != _SVCT_MAGIC:
             raise ViseFormatError("not an Installer VISE archive (no SVCT header)")
 

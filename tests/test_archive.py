@@ -5,10 +5,10 @@ from __future__ import annotations
 import struct
 
 import pytest
+from synth import Fork, Rec, build_archive
 
 from installer_vise import Archive
 from installer_vise.errors import ViseFormatError
-from synth import Fork, Rec, build_archive
 
 
 def test_header_facts():

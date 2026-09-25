@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from synth import Fork, Rec, build_archive
 
 from installer_vise.cli import EXIT_OK, EXIT_PARTIAL, main
-from synth import Fork, Rec, build_archive
 
 
 @pytest.fixture()

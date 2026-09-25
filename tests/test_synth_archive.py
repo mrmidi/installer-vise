@@ -11,10 +11,10 @@ from __future__ import annotations
 import csv
 
 import pytest
+from synth import Fork, Rec, build_archive
 
 from installer_vise import Archive, RecordStatus, extract_archive
 from installer_vise.errors import ViseFormatError
-from synth import Fork, Rec, build_archive
 
 
 def test_minimal_plain_roundtrip(tmp_path):
@@ -122,7 +122,8 @@ def test_manifest_written(tmp_path):
     ])
     arc = Archive.from_bytes(arc_bytes)
     extract_archive(arc, tmp_path)
-    rows = list(csv.DictReader(open(tmp_path / "manifest.csv")))
+    with open(tmp_path / "manifest.csv") as f:
+        rows = list(csv.DictReader(f))
     assert len(rows) == 1
     assert rows[0]["catalog_name"] == "doc.bin"
     assert rows[0]["status"] == "OK"

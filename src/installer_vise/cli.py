@@ -9,7 +9,7 @@ from pathlib import Path
 from . import __version__
 from .archive import Archive
 from .errors import ViseError
-from .extract import RecordStatus, extract_archive
+from .extract import extract_archive
 
 EXIT_OK = 0
 EXIT_NOT_VISE = 1
@@ -34,6 +34,10 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="output directory (default: ./extracted)")
     pe.add_argument("--no-manifest", action="store_true",
                     help="skip manifest.csv / directories.txt")
+    pe.add_argument("-q", "--quiet", action="store_true",
+                    help="suppress per-file progress")
+    pe.add_argument("-j", "--jobs", type=int, default=None,
+                    metavar="N", help="number of worker threads")
     return p
 
 
@@ -59,7 +63,9 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 def _cmd_extract(args: argparse.Namespace) -> int:
     arc = Archive.open(args.archive)
     summary = extract_archive(arc, args.out,
-                              write_manifest=not args.no_manifest)
+                              write_manifest=not args.no_manifest,
+                              progress=not args.quiet,
+                              max_workers=args.jobs)
     ok = summary.crc_ok
     print(f"extracted {summary.written} files to {args.out}/files "
           f"({ok}/{summary.written} CRC-verified, "

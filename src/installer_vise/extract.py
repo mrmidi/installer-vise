@@ -20,13 +20,16 @@ from __future__ import annotations
 
 import csv
 import enum
+import os
 import zlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
 from .archive import Archive
 from .errors import ViseError
-from .subst import subst
 
 __all__ = ["RecordStatus", "FileResult", "Summary", "extract_archive"]
 
@@ -110,20 +113,90 @@ def _crc(data: bytes, rsrc: bytes) -> int:
 
 # ------------------------------------------------------------ extraction --
 
+def _decode_record(arc: Archive, rec) -> tuple[bytes, bytes] | ViseError:
+    """Decode a plain record's data and rsrc forks. Returns (data, rsrc) or an error."""
+    try:
+        if rec.stored_d:
+            data, _ = arc.decode_block(rec.block_offset, rec.stored_d,
+                                       expected=rec.size_d,
+                                       strict_consumed=False)
+        else:
+            data = b""
+        if rec.stored_r:
+            rsrc, _ = arc.decode_block(
+                rec.block_offset + rec.stored_d, rec.stored_r,
+                expected=rec.size_r)
+        else:
+            rsrc = b""
+        return (data, rsrc)
+    except ViseError as exc:
+        return exc
+
+
+def _decode_block_members(arc: Archive, blk) -> tuple[bytes, list[tuple]] | ViseError:
+    """Decode a shared block and prepare member slices. Returns (pool, member_slices) or error."""
+    try:
+        pool, consumed = arc.decode_block(blk.offset, blk.stored,
+                                          expected=blk.expanded)
+    except ViseError as exc:
+        return exc
+    slices = []
+    for rec in blk.members:
+        if rec.slice_off_d + rec.size_d > len(pool) or \
+           rec.slice_off_r + rec.size_r > len(pool):
+            continue
+        data = pool[rec.slice_off_d:rec.slice_off_d + rec.size_d]
+        rsrc = pool[rec.slice_off_r:rec.slice_off_r + rec.size_r] \
+            if rec.size_r else b""
+        slices.append((rec, data, rsrc))
+    return (pool, slices)
+
+
 def extract_archive(arc: Archive, out_dir: str | Path, *,
-                    write_manifest: bool = True) -> Summary:
+                    write_manifest: bool = True,
+                    progress: bool = True,
+                    max_workers: int | None = None) -> Summary:
     """Extract every record stored in this archive into ``out_dir``.
 
     Writes data forks as named files and resource forks as ``<name>.rsrc``
     sidecars.  With ``write_manifest`` (default) also writes
     ``manifest.csv`` and ``directories.txt`` next to the files.
+
+    ``progress`` prints per-file status to stdout.  ``max_workers``
+    controls the thread pool size (defaults to min(32, cpu_count + 4)).
     """
     out = Path(out_dir)
     files_dir = out / "files"
     files_dir.mkdir(parents=True, exist_ok=True)
 
+    if max_workers is None:
+        max_workers = min(32, (os.cpu_count() or 4) + 4)
+
     summary = Summary()
     used_names: set[str] = set()
+    name_lock = __import__("threading").Lock()
+
+    total = sum(1 for r in arc.catalog.files if r.in_archive)
+    done = 0
+
+    _prog_ctx = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TextColumn("{task.fields[name]}"),
+    ) if progress and total else None
+
+    _task_id = _prog_ctx.add_task("extracting", total=total, name="") if _prog_ctx else None
+
+    def _pb(name: str = ""):
+        nonlocal done
+        if _prog_ctx:
+            trunc = (name[:40] + "…") if len(name) > 41 else name
+            _prog_ctx.update(_task_id, advance=1, name=trunc)
 
     def finish(rec, data: bytes, rsrc: bytes, status: RecordStatus,
                detail: str = "", wrote: bool = False) -> None:
@@ -145,7 +218,8 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
 
     def emit(rec, data: bytes, rsrc: bytes) -> None:
         base = _clean_name(rec.name, rec.catalog_offset)
-        fname = _unique(base, used_names, rec.catalog_offset)
+        with name_lock:
+            fname = _unique(base, used_names, rec.catalog_offset)
         (files_dir / fname).write_bytes(data)
         if rsrc:
             (files_dir / f"{fname}.rsrc").write_bytes(rsrc)
@@ -158,53 +232,66 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
                    detail=f"crc {crc:08x} != {rec.record_crc:08x}",
                    wrote=True)
 
+    if _prog_ctx:
+        _prog_ctx.start()
+
     # ---- shared blocks: decode once, slice per member --------------------
+    shared_recs = set()
     for blk in arc.catalog.blocks:
-        try:
-            pool, consumed = arc.decode_block(blk.offset, blk.stored,
-                                              expected=blk.expanded)
-        except ViseError as exc:
+        result = _decode_block_members(arc, blk)
+        if isinstance(result, ViseError):
             for rec in blk.members:
                 finish(rec, b"", b"", RecordStatus.FAILED,
-                       f"block {blk.offset:#x}: {exc}")
+                       f"block {blk.offset:#x}: {result}")
             continue
+        pool, slices = result
         summary.blocks += 1
-        for rec in blk.members:
-            if rec.slice_off_d + rec.size_d > len(pool) or \
-               rec.slice_off_r + rec.size_r > len(pool):
-                finish(rec, b"", b"", RecordStatus.FAILED,
-                       f"slice out of range in block {blk.offset:#x}")
-                continue
-            data = pool[rec.slice_off_d:rec.slice_off_d + rec.size_d]
-            rsrc = pool[rec.slice_off_r:rec.slice_off_r + rec.size_r] \
-                if rec.size_r else b""
+        for rec, data, rsrc in slices:
             emit(rec, data, rsrc)
+            shared_recs.add(rec.catalog_offset)
+            done += 1
+            _pb(rec.name)
 
     # ---- plain records: two independent streams ---------------------------
+    plain_recs = [rec for rec in arc.catalog.files
+                  if not rec.is_shared and rec.in_archive]
+
+    if not plain_recs:
+        pass  # nothing to do
+    elif len(plain_recs) == 1 or max_workers <= 1:
+        # Single-threaded for small batches
+        for rec in plain_recs:
+            result = _decode_record(arc, rec)
+            if isinstance(result, ViseError):
+                finish(rec, b"", b"", RecordStatus.FAILED, str(result))
+            else:
+                data, rsrc = result
+                emit(rec, data, rsrc)
+            done += 1
+            _pb(rec.name)
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(_decode_record, arc, rec): rec
+                       for rec in plain_recs}
+            for future in as_completed(futures):
+                rec = futures[future]
+                result = future.result()
+                if isinstance(result, ViseError):
+                    finish(rec, b"", b"", RecordStatus.FAILED, str(result))
+                else:
+                    data, rsrc = result
+                    emit(rec, data, rsrc)
+                done += 1
+                _pb(rec.name)
+
+    # Handle other-source records (not stored in this archive)
     for rec in arc.catalog.files:
-        if rec.is_shared:
-            continue
-        if not rec.in_archive:
+        if not rec.is_shared and not rec.in_archive:
             finish(rec, b"", b"", RecordStatus.OTHER_SOURCE,
                    f"source {rec.source_index}, not stored in this archive")
-            continue
-        try:
-            if rec.stored_d:
-                data, _ = arc.decode_block(rec.block_offset, rec.stored_d,
-                                           expected=rec.size_d,
-                                           strict_consumed=False)
-            else:
-                data = b""
-            if rec.stored_r:
-                rsrc, _ = arc.decode_block(
-                    rec.block_offset + rec.stored_d, rec.stored_r,
-                    expected=rec.size_r)
-            else:
-                rsrc = b""
-        except ViseError as exc:
-            finish(rec, b"", b"", RecordStatus.FAILED, str(exc))
-            continue
-        emit(rec, data, rsrc)
+
+    if _prog_ctx:
+        _prog_ctx.stop()
 
     if write_manifest:
         _write_manifest(out, arc, summary)

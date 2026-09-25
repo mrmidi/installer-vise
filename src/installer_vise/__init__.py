@@ -37,6 +37,7 @@ __all__ = [
     "ViseFormatError",
     "ViseInflateError",
     "ViseIntegrityError",
+    "InflateError",
     "deflate_stored",
     "extract_archive",
     "inflate",
