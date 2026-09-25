@@ -129,11 +129,7 @@ class Archive:
         if is_raw:
             catalog_body = catalog_raw
         else:
-            out, consumed = inflate_span(catalog_raw, 0)
-            if consumed != len(catalog_raw):
-                raise ViseFormatError(
-                    f"catalog DEFLATE: consumed {consumed} of "
-                    f"{len(catalog_raw)} bytes")
+            out, _ = inflate_span(catalog_raw, 0)
             catalog_body = out
 
         # Name offset is detected from the catalog data itself (via the
@@ -151,9 +147,6 @@ class Archive:
             pack_count=pack_count,
             profile=profile,
         )
-
-    # ------------------------------------------------------------------
-    # Attributes: data, info, catalog, source_path from the dataclass.
         return cls(data=data, info=info, catalog=catalog, source_path=source)
 
     # ------------------------------------------------------------ payloads --
@@ -177,7 +170,7 @@ class Archive:
         window = self.data[offset:offset + stored]
         if substitute:
             window = subst(window)
-        out, consumed = inflate_span(window, 0)
+        out, consumed = inflate_span(window, 0, expected=expected)
         if strict_consumed and consumed != stored:
             raise ViseFormatError(
                 f"payload: stream consumed {consumed} bytes, expected {stored}")

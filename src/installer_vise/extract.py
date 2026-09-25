@@ -91,24 +91,27 @@ def _clean_name(name: str, catalog_offset: int) -> str:
     return name or f"unnamed_{catalog_offset:x}"
 
 
-def _unique(name: str, used: set[str], catalog_offset: int) -> str:
+def _unique(name: str, used: set[str], used_lower: set[str],
+             catalog_offset: int) -> str:
     # Case-insensitive: macOS volumes commonly collide on case-folded names.
     low = name.lower()
-    if low not in {n.lower() for n in used}:
+    if low not in used_lower:
         used.add(name)
+        used_lower.add(low)
         return name
     stem, dot, ext = name.rpartition(".")
     candidate = f"{stem} (r{catalog_offset:x}).{ext}" if dot else \
         f"{name} (r{catalog_offset:x})"
-    existing = {n.lower() for n in used}
-    while candidate.lower() in existing:
+    while candidate.lower() in used_lower:
         candidate += "_"
     used.add(candidate)
+    used_lower.add(candidate.lower())
     return candidate
 
 
 def _crc(data: bytes, rsrc: bytes) -> int:
-    return zlib.crc32(data + rsrc) & 0xFFFFFFFF
+    crc = zlib.crc32(data)
+    return zlib.crc32(rsrc, crc) & 0xFFFFFFFF
 
 
 # ------------------------------------------------------------ extraction --
@@ -133,23 +136,29 @@ def _decode_record(arc: Archive, rec) -> tuple[bytes, bytes] | ViseError:
         return exc
 
 
-def _decode_block_members(arc: Archive, blk) -> tuple[bytes, list[tuple]] | ViseError:
-    """Decode a shared block and prepare member slices. Returns (pool, member_slices) or error."""
+def _decode_block_members(arc: Archive, blk) -> tuple[bytes, list[tuple], list[tuple]] | ViseError:
+    """Decode a shared block and prepare member slices.
+
+    Returns (pool, slices, failed) where slices are successfully decoded
+    members and failed are records with out-of-range slices.
+    """
     try:
         pool, consumed = arc.decode_block(blk.offset, blk.stored,
                                           expected=blk.expanded)
     except ViseError as exc:
         return exc
     slices = []
+    failed = []
     for rec in blk.members:
         if rec.slice_off_d + rec.size_d > len(pool) or \
            rec.slice_off_r + rec.size_r > len(pool):
+            failed.append((rec, f"slice out of range in block {blk.offset:#x}"))
             continue
         data = pool[rec.slice_off_d:rec.slice_off_d + rec.size_d]
         rsrc = pool[rec.slice_off_r:rec.slice_off_r + rec.size_r] \
             if rec.size_r else b""
         slices.append((rec, data, rsrc))
-    return (pool, slices)
+    return (pool, slices, failed)
 
 
 def extract_archive(arc: Archive, out_dir: str | Path, *,
@@ -174,7 +183,7 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
 
     summary = Summary()
     used_names: set[str] = set()
-    name_lock = __import__("threading").Lock()
+    used_names_lower: set[str] = set()
 
     total = sum(1 for r in arc.catalog.files if r.in_archive)
     done = 0
@@ -218,8 +227,7 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
 
     def emit(rec, data: bytes, rsrc: bytes) -> None:
         base = _clean_name(rec.name, rec.catalog_offset)
-        with name_lock:
-            fname = _unique(base, used_names, rec.catalog_offset)
+        fname = _unique(base, used_names, used_names_lower, rec.catalog_offset)
         (files_dir / fname).write_bytes(data)
         if rsrc:
             (files_dir / f"{fname}.rsrc").write_bytes(rsrc)
@@ -236,7 +244,6 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
         _prog_ctx.start()
 
     # ---- shared blocks: decode once, slice per member --------------------
-    shared_recs = set()
     for blk in arc.catalog.blocks:
         result = _decode_block_members(arc, blk)
         if isinstance(result, ViseError):
@@ -244,13 +251,14 @@ def extract_archive(arc: Archive, out_dir: str | Path, *,
                 finish(rec, b"", b"", RecordStatus.FAILED,
                        f"block {blk.offset:#x}: {result}")
             continue
-        pool, slices = result
+        pool, slices, failed = result
         summary.blocks += 1
         for rec, data, rsrc in slices:
             emit(rec, data, rsrc)
-            shared_recs.add(rec.catalog_offset)
-            done += 1
-            _pb(rec.name)
+        for rec, detail in failed:
+            finish(rec, b"", b"", RecordStatus.FAILED, detail)
+        done += len(slices) + len(failed)
+        _pb(blk.members[0].name if blk.members else "")
 
     # ---- plain records: two independent streams ---------------------------
     plain_recs = [rec for rec in arc.catalog.files
